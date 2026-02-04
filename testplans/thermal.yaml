@@ -1,0 +1,30 @@
+name: "Thermal Stress & Throttling Validation"
+description: "Ramps CPU load and injects fan failure to test throttling logic"
+steps:
+  - name: "Boot System"
+    action: "boot"
+    duration: 5
+
+  - name: "Heat Soak (100% Load)"
+    action: "stress"
+    params:
+      load: 100
+    duration: 15
+    criteria:
+      max_temp: 90.0
+
+  - name: "Inject Fan Failure"
+    action: "inject_failure"
+    params:
+      type: "fan_stall"
+      load: 80
+    duration: 10
+  
+  - name: "Cooldown Recovery"
+    action: "clear_failure"
+    params:
+      type: "fan_stall"
+      load: 10
+    duration: 15
+    criteria:
+      max_temp: 60.0
