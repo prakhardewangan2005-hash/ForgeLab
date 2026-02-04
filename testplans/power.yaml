@@ -1,0 +1,15 @@
+name: "PSU Voltage Sag Test"
+description: "Tests system behavior under unstable voltage"
+steps:
+  - name: "Boot"
+    action: "boot"
+    duration: 5
+    
+  - name: "Inject Voltage Sag"
+    action: "inject_failure"
+    params:
+      type: "psu_sag"
+      load: 50
+    duration: 10
+    criteria:
+      min_voltage: 11.5 # This should fail
