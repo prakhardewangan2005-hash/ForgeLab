@@ -10,7 +10,7 @@ This project focuses on *system-level ownership* rather than isolated components
 
 ### 🔗 Live Demo (Browser-Only, No Terminal)
 **Streamlit Cloud Demo:**  
-👉 https://forgelab-3esypw3tvcrbqbrrc2umfe.streamlit.app  
+👉 https://forgelab-3esypw3tvcrbqbrrc2umfe.streamlit.app/
 
 The live demo allows you to:
 - Select a system-level test plan (Bring-Up / Thermal / Power)
