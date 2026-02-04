@@ -1,0 +1,16 @@
+name: "Server Initial Bring-up"
+description: "Validates boot sequence and idle stability"
+steps:
+  - name: "Power On & Boot"
+    action: "boot"
+    duration: 10
+    criteria:
+      os_running: true
+
+  - name: "Idle Stability Check"
+    action: "stress"
+    params:
+      load: 5
+    duration: 10
+    criteria:
+      max_temp: 50.0
