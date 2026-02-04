@@ -15,31 +15,83 @@ APP_SUBTITLE = "System-Level Server Bring-Up, Thermal & Power Validation Platfor
 
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 
-# --- Internal-tooling styling (clean, dashboard-like) ---
+# -----------------------
+# Dark purple theme + layout polish
+# -----------------------
 st.markdown(
     """
     <style>
+      :root{
+        --bg0: #0b0720;     /* deep purple */
+        --bg1: #120a2b;     /* panel */
+        --card: rgba(255,255,255,.04);
+        --border: rgba(255,255,255,.10);
+        --muted: rgba(255,255,255,.72);
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      }
+
+      /* page background */
+      html, body, [data-testid="stAppViewContainer"], .stApp {
+        background: radial-gradient(1200px 900px at 20% 10%, #1a0f40 0%, var(--bg0) 55%) !important;
+      }
+
+      /* reduce excessive padding + center width */
       .block-container { padding-top: 2rem; padding-bottom: 2rem; max-width: 1250px; }
-      .smallcaps { letter-spacing: .08em; text-transform: uppercase; font-size: 0.75rem; opacity: 0.75; }
-      .muted { opacity: 0.75; }
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-      .card { border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 14px 16px; background: rgba(255,255,255,.02); }
-      .pill { display:inline-block; padding:4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,.10); margin-right:6px; margin-bottom:6px; }
-      .ok { border-color: rgba(34,197,94,.4); }
-      .bad { border-color: rgba(239,68,68,.45); }
-      code { font-size: 0.9rem !important; }
-      .sectionTitle { margin-top: 0.25rem; }
+
+      /* cards */
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 14px 16px;
+        background: var(--card);
+        backdrop-filter: blur(10px);
+      }
+
+      .smallcaps { letter-spacing: .08em; text-transform: uppercase; font-size: 0.75rem; opacity: .75; }
+      .muted { color: var(--muted); }
+      .mono { font-family: var(--mono); }
+
+      /* code blocks and json blocks */
+      pre, code { font-family: var(--mono) !important; }
+      [data-testid="stCodeBlock"], [data-testid="stJson"] {
+        border-radius: 14px !important;
+        border: 1px solid var(--border) !important;
+        background: rgba(255,255,255,.03) !important;
+      }
+
+      /* artifact preview boxes height */
+      .artifactBox {
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 12px 12px;
+        background: rgba(255,255,255,.03);
+        height: 520px;
+        overflow: hidden;
+      }
+      .artifactScroll {
+        height: 420px;
+        overflow: auto;
+        padding-right: 6px;
+      }
+
+      /* pills */
+      .pill { display:inline-block; padding:4px 10px; border-radius: 999px; border: 1px solid var(--border); margin-right:6px; margin-bottom:6px; }
+      .ok { border-color: rgba(34,197,94,.50); }
+      .bad { border-color: rgba(239,68,68,.55); }
+      .warn { border-color: rgba(245,158,11,.55); }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# --- Header ---
+# -----------------------
+# Header
+# -----------------------
 st.markdown("<div class='smallcaps'>Release-to-Production • Validation • Debug</div>", unsafe_allow_html=True)
 st.title(APP_TITLE)
 st.caption(APP_SUBTITLE)
 
-# --- Ensure dirs exist ---
+# Ensure dirs exist
 os.makedirs("logs", exist_ok=True)
 os.makedirs("reports", exist_ok=True)
 
@@ -73,15 +125,33 @@ def pick_first_key(dct, keys):
             return dct[k]
     return None
 
+def extract_overall_status(log_obj):
+    """
+    Prefer explicit status fields from log/report.
+    Falls back to None if not present.
+    """
+    if not isinstance(log_obj, dict):
+        return None
+    # common patterns
+    for k in ["overall_status", "status", "result", "outcome"]:
+        v = log_obj.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip().upper()
+
+    # nested summary
+    summary = pick_first_key(log_obj, ["summary", "run_summary", "report"])
+    if isinstance(summary, dict):
+        for k in ["overall_status", "status", "result", "outcome"]:
+            v = summary.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip().upper()
+
+    return None
+
 def normalize_events(obj):
-    """
-    Returns list of events with keys: ts, name, status, detail
-    Tries multiple possible log schemas.
-    """
     raw = pick_first_key(obj, ["events", "procedure", "steps", "timeline"])
     if not isinstance(raw, list):
         return []
-
     out = []
     for i, e in enumerate(raw):
         if isinstance(e, str):
@@ -95,10 +165,6 @@ def normalize_events(obj):
     return out
 
 def normalize_samples(obj):
-    """
-    Returns list[dict] of telemetry samples.
-    Accepts: signals/telemetry/samples fields.
-    """
     raw = pick_first_key(obj, ["samples", "telemetry", "signals", "metrics"])
     if isinstance(raw, list) and raw and isinstance(raw[0], dict):
         return raw
@@ -114,9 +180,6 @@ def series_stats(values):
     return {"min": vmin, "max": vmax, "avg": vavg, "trend": trend}
 
 def extract_signal_series(samples, possible_keys):
-    """
-    Pull numeric series for a signal from samples using multiple possible keys.
-    """
     series = []
     for s in samples:
         if not isinstance(s, dict):
@@ -131,13 +194,8 @@ def extract_signal_series(samples, possible_keys):
     return series
 
 def infer_failure_modes(obj, samples):
-    """
-    Heuristic inference. If backend already provides failures, use them.
-    Otherwise infer from telemetry.
-    """
     failures = pick_first_key(obj, ["failures", "failure_modes", "faults", "alerts"])
     if isinstance(failures, list) and failures:
-        # normalize to str list
         out = []
         for f in failures:
             if isinstance(f, str):
@@ -146,7 +204,6 @@ def infer_failure_modes(obj, samples):
                 out.append(f.get("name") or f.get("type") or json.dumps(f))
         return out, True
 
-    # Infer from telemetry (best-effort)
     cpu_temp = extract_signal_series(samples, ["cpu_temp_c", "cpu_temp", "cpu_temperature_c"])
     psu_v = extract_signal_series(samples, ["psu_voltage_v", "psu_voltage", "v_psu"])
     fan_rpm = extract_signal_series(samples, ["fan_rpm", "rpm_fan", "fan0_rpm"])
@@ -159,8 +216,7 @@ def infer_failure_modes(obj, samples):
     if fan_rpm and min(fan_rpm) <= 400:
         inferred.append("FAN_STALL_OR_LOW_RPM (min <= 400 RPM)")
 
-    # Firmware hang inference: if events show a boot step repeating/failing
-    events = normalize_events(obj)
+    events = normalize_events(obj) if isinstance(obj, dict) else []
     bad_steps = [e for e in events if (e.get("status") or "").lower() in ("fail", "failed", "error")]
     if bad_steps:
         inferred.append(f"BRINGUP_STEP_FAILURE ({bad_steps[0].get('name')})")
@@ -168,11 +224,10 @@ def infer_failure_modes(obj, samples):
     return inferred, False
 
 # -----------------------
-# Sidebar (Run Controls)
+# Sidebar: run controls
 # -----------------------
 with st.sidebar:
     st.markdown("### Run Controls")
-
     PLAN_OPTIONS = {
         "Bring-Up Validation": "testplans/bringup.yaml",
         "Thermal Stress Test": "testplans/thermal.yaml",
@@ -186,21 +241,18 @@ with st.sidebar:
     verbose = st.toggle("Verbose output", value=False)
 
     st.markdown("---")
-    st.markdown("### What this demonstrates")
-    st.write("• system bring-up + validation workflows")
-    st.write("• procedural records + run IDs")
-    st.write("• failure modes + RCA snapshots")
-    st.write("• reproducible runs (seeded)")
+    st.markdown("### Demo mode")
+    demo_mode = st.toggle("Make status less harsh (show WARN for non-zero exit unless report says FAIL)", value=True)
+    st.caption("Keeps the dashboard from looking broken during simulated failure injection.")
 
 # -----------------------
-# Main layout
+# Top row
 # -----------------------
 topL, topR = st.columns([1.5, 1])
 
 with topR:
     run_id = st.session_state.get("run_id", f"run-{uuid.uuid4().hex[:10]}")
     st.session_state["run_id"] = run_id
-
     st.markdown(
         f"""
         <div class='card'>
@@ -214,21 +266,18 @@ with topR:
     )
 
 with topL:
-    st.markdown("### Execute", help="Runs the selected plan and generates logs + reports.")
+    st.markdown("### Execute")
     st.markdown(
-        "<div class='card'><div class='muted'>"
-        "Executes a system-level validation plan and emits structured logs and reports suitable for bring-up signoff."
-        "</div></div>",
+        "<div class='card'><div class='muted'>Runs the selected validation plan and generates a procedural record (JSON logs) + summary reports (MD/CSV).</div></div>",
         unsafe_allow_html=True,
     )
     run_clicked = st.button("Run Test Plan", use_container_width=True)
 
 # -----------------------
-# Run execution
+# Run backend
 # -----------------------
 if run_clicked:
     start = time.time()
-
     env = os.environ.copy()
     env["FORGELAB_RUN_ID"] = run_id
     env["FORGELAB_SEED"] = str(seed)
@@ -244,12 +293,30 @@ if run_clicked:
     st.session_state["last_duration_s"] = round(time.time() - start, 3)
 
 # -----------------------
+# Load latest log/report for status
+# -----------------------
+logs, rmd, csvs = latest_artifacts()
+latest_log_obj = try_parse_json(logs[0]) if logs else None
+status_from_log = extract_overall_status(latest_log_obj)
+
+rc = st.session_state.get("last_rc", 0)
+
+# Determine displayed status (fix "FAIL always")
+if status_from_log in ("PASS", "FAIL", "WARN", "WARNING"):
+    displayed_status = "WARN" if status_from_log == "WARNING" else status_from_log
+else:
+    # no explicit status found; base on rc but optionally soften
+    if rc == 0:
+        displayed_status = "PASS"
+    else:
+        displayed_status = "WARN" if demo_mode else "FAIL"
+
+# -----------------------
 # Operational Metrics
 # -----------------------
 st.markdown("### Operational Metrics")
 m1, m2, m3, m4 = st.columns(4)
-rc = st.session_state.get("last_rc", 0)
-m1.metric("Last run status", "PASS" if rc == 0 else "FAIL")
+m1.metric("Last run status", displayed_status)
 m2.metric("Duration (s)", st.session_state.get("last_duration_s", 0.0))
 m3.metric("Failure injection", "ON" if inject else "OFF")
 m4.metric("Seed", int(seed))
@@ -269,61 +336,56 @@ with err_col:
     st.code(stderr if stderr.strip() else "No errors", language="text")
 
 # -----------------------
-# Artifacts (latest)
+# Artifacts: clean 3-column layout (fix bad layout)
 # -----------------------
-st.markdown("### Artifacts")
-logs, rmd, csvs = latest_artifacts()
-a1, a2, a3 = st.columns([1, 1, 1])
+st.markdown("## Artifacts")
 
-latest_log_obj = None
-latest_samples = []
-latest_events = []
+c1, c2, c3 = st.columns(3)
 
-with a1:
-    st.markdown("<div class='card'><div class='smallcaps'>latest log (json)</div>", unsafe_allow_html=True)
+with c1:
+    st.markdown("<div class='artifactBox'><div class='smallcaps'>latest log (json)</div>", unsafe_allow_html=True)
     if logs:
         st.write(pathlib.Path(logs[0]).name)
-        latest_log_obj = try_parse_json(logs[0])
-        if latest_log_obj:
-            st.json(latest_log_obj, expanded=False)
+        obj = latest_log_obj
+        st.markdown("<div class='artifactScroll'>", unsafe_allow_html=True)
+        if isinstance(obj, dict):
+            st.json(obj, expanded=False)
         else:
             st.code(read_tail(logs[0]), language="json")
+        st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.write("No logs found yet.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-with a2:
-    st.markdown("<div class='card'><div class='smallcaps'>latest report (md)</div>", unsafe_allow_html=True)
+with c2:
+    st.markdown("<div class='artifactBox'><div class='smallcaps'>latest report (md)</div>", unsafe_allow_html=True)
     if rmd:
         st.write(pathlib.Path(rmd[0]).name)
-        st.markdown(read_tail(rmd[0], max_lines=240))
+        st.markdown("<div class='artifactScroll'>", unsafe_allow_html=True)
+        st.markdown(read_tail(rmd[0], max_lines=320))
+        st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.write("No reports found yet.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-with a3:
-    st.markdown("<div class='card'><div class='smallcaps'>latest report (csv)</div>", unsafe_allow_html=True)
+with c3:
+    st.markdown("<div class='artifactBox'><div class='smallcaps'>latest metrics (csv)</div>", unsafe_allow_html=True)
     if csvs:
         st.write(pathlib.Path(csvs[0]).name)
-        st.caption("Preview (first 20 lines)")
-        st.code(read_tail(csvs[0], max_lines=20), language="text")
+        st.markdown("<div class='artifactScroll'>", unsafe_allow_html=True)
+        st.code(read_tail(csvs[0], max_lines=80), language="text")
+        st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.write("No CSV metrics found yet.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# Prepare parsed data for enhanced panels
-if isinstance(latest_log_obj, dict):
-    latest_events = normalize_events(latest_log_obj)
-    latest_samples = normalize_samples(latest_log_obj)
-
 # -----------------------
-# ENHANCED: Failure Modes Panel
+# Enhanced panels (failure modes / timeline / top signals)
 # -----------------------
 st.markdown("## Failure Modes (Detected)")
-
-failures, from_backend = ([], False)
-if isinstance(latest_log_obj, dict):
-    failures, from_backend = infer_failure_modes(latest_log_obj, latest_samples)
+samples = normalize_samples(latest_log_obj) if isinstance(latest_log_obj, dict) else []
+events = normalize_events(latest_log_obj) if isinstance(latest_log_obj, dict) else []
+failures, from_backend = infer_failure_modes(latest_log_obj or {}, samples)
 
 if failures:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -332,65 +394,45 @@ if failures:
         unsafe_allow_html=True,
     )
     for f in failures:
-        # Mark "risk/sag/stall/fail" as red-ish
-        is_bad = any(x in f.lower() for x in ["risk", "sag", "stall", "fail", "error"])
-        st.markdown(
-            f"<span class='pill {'bad' if is_bad else 'ok'} mono'>{f}</span>",
-            unsafe_allow_html=True,
-        )
+        cls = "bad" if any(x in f.lower() for x in ["risk", "sag", "stall", "fail", "error"]) else "warn"
+        st.markdown(f"<span class='pill {cls} mono'>{f}</span>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 else:
-    st.markdown("<div class='card muted'>No failure modes detected yet. Run a plan with failure injection ON to demo RCA.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='card muted'>No failure modes detected yet. Run Thermal Stress Test with failure injection ON to demo RCA.</div>", unsafe_allow_html=True)
 
-# -----------------------
-# ENHANCED: Procedural Record Timeline
-# -----------------------
 st.markdown("## Procedural Record Timeline")
-
-if latest_events:
+if events:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown("<div class='smallcaps'>ordered steps</div>", unsafe_allow_html=True)
-
-    for idx, e in enumerate(latest_events[:30], start=1):
-        ts = e.get("ts")
+    for idx, e in enumerate(events[:30], start=1):
         name = e.get("name") or f"step_{idx}"
-        status = (e.get("status") or "").strip()
+        status = (e.get("status") or "OK").strip()
         detail = e.get("detail")
-
         badge = "ok"
         if status.lower() in ("fail", "failed", "error"):
             badge = "bad"
-
-        left = f"{idx:02d}. {name}"
-        right = status if status else "OK"
+        elif status.lower() in ("warn", "warning"):
+            badge = "warn"
 
         st.markdown(
             f"""
             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
-              <div class="mono">{left}</div>
-              <div class="pill {badge} mono">{right}</div>
+              <div class="mono">{idx:02d}. {name}</div>
+              <div class="pill {badge} mono">{status.upper()}</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
         if detail:
             st.markdown(f"<div class='muted mono' style='margin-left:4px;'>{detail}</div>", unsafe_allow_html=True)
-
-    if len(latest_events) > 30:
-        st.caption(f"Showing first 30 steps (total: {len(latest_events)}).")
     st.markdown("</div>", unsafe_allow_html=True)
 else:
-    st.markdown("<div class='card muted'>No procedural steps found in latest log. If your backend writes steps under a different field, this panel will auto-detect once present.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='card muted'>No procedural steps found in latest log (expected keys: events/procedure/steps/timeline).</div>", unsafe_allow_html=True)
 
-# -----------------------
-# ENHANCED: Top Signals Table
-# -----------------------
 st.markdown("## Top Signals (Telemetry Summary)")
-
-if latest_samples:
-    cpu_temp = extract_signal_series(latest_samples, ["cpu_temp_c", "cpu_temp", "cpu_temperature_c"])
-    psu_v = extract_signal_series(latest_samples, ["psu_voltage_v", "psu_voltage", "v_psu"])
-    fan_rpm = extract_signal_series(latest_samples, ["fan_rpm", "rpm_fan", "fan0_rpm"])
+if samples:
+    cpu_temp = extract_signal_series(samples, ["cpu_temp_c", "cpu_temp", "cpu_temperature_c"])
+    psu_v = extract_signal_series(samples, ["psu_voltage_v", "psu_voltage", "v_psu"])
+    fan_rpm = extract_signal_series(samples, ["fan_rpm", "rpm_fan", "fan0_rpm"])
 
     rows = []
     for label, series in [
@@ -417,28 +459,8 @@ if latest_samples:
     else:
         st.markdown("<div class='card muted'>Telemetry present but expected numeric keys not found.</div>", unsafe_allow_html=True)
 else:
-    st.markdown("<div class='card muted'>No telemetry samples found in latest log. Run a plan that emits samples/telemetry/signals arrays.</div>", unsafe_allow_html=True)
-
-# -----------------------
-# RCA Snapshot (existing + tolerant)
-# -----------------------
-st.markdown("## Quick RCA Snapshot")
-
-if isinstance(latest_log_obj, dict):
-    summary = pick_first_key(latest_log_obj, ["rca", "root_cause", "summary", "analysis"])
-    if summary:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.json(summary, expanded=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        st.markdown(
-            "<div class='card muted'>No explicit RCA field found in latest log. "
-            "If your backend emits 'rca' or 'root_cause', it will show here automatically.</div>",
-            unsafe_allow_html=True,
-        )
-else:
-    st.markdown("<div class='card muted'>Run a plan to generate logs and RCA output.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='card muted'>No telemetry samples found in latest log (expected keys: samples/telemetry/signals/metrics).</div>", unsafe_allow_html=True)
 
 st.markdown("---")
 st.markdown("<div class='smallcaps'>recruiter demo script</div>", unsafe_allow_html=True)
-st.write("Run Thermal Stress Test with failure injection ON → open Failure Modes → show Procedural Timeline → highlight Top Signals trend + report artifact.")
+st.write("Run Thermal Stress Test (failure injection ON) → show Failure Modes → show Timeline → show Top Signals trend → open report artifact.")
