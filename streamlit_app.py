@@ -340,21 +340,38 @@ with err_col:
 # -----------------------
 st.markdown("## Artifacts")
 
+# --- DEBUG: show working directory + what files exist ---
+st.markdown("<div class='card'>", unsafe_allow_html=True)
+st.markdown("<div class='smallcaps'>debug</div>", unsafe_allow_html=True)
+st.write("Working dir:", os.getcwd())
+st.write("Repo root listing:", sorted([p.name for p in pathlib.Path('.').iterdir()])[:40])
+
+log_files = sorted(pathlib.Path("logs").glob("*"))
+rep_files = sorted(pathlib.Path("reports").glob("*"))
+st.write("logs/ files:", [p.name for p in log_files])
+st.write("reports/ files:", [p.name for p in rep_files])
+st.markdown("</div>", unsafe_allow_html=True)
+
+# Re-scan AFTER a run (force refresh of file lists)
+logs = sorted(glob.glob("logs/*.json"), key=os.path.getmtime, reverse=True)
+rmd  = sorted(glob.glob("reports/*.md"), key=os.path.getmtime, reverse=True)
+csvs = sorted(glob.glob("reports/*.csv"), key=os.path.getmtime, reverse=True)
+
 c1, c2, c3 = st.columns(3)
 
 with c1:
     st.markdown("<div class='artifactBox'><div class='smallcaps'>latest log (json)</div>", unsafe_allow_html=True)
     if logs:
         st.write(pathlib.Path(logs[0]).name)
-        obj = latest_log_obj
         st.markdown("<div class='artifactScroll'>", unsafe_allow_html=True)
+        obj = try_parse_json(logs[0])
         if isinstance(obj, dict):
             st.json(obj, expanded=False)
         else:
             st.code(read_tail(logs[0]), language="json")
         st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.write("No logs found yet.")
+        st.write("No JSON logs found in logs/.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 with c2:
@@ -365,7 +382,7 @@ with c2:
         st.markdown(read_tail(rmd[0], max_lines=320))
         st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.write("No reports found yet.")
+        st.write("No Markdown reports found in reports/.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 with c3:
@@ -373,10 +390,10 @@ with c3:
     if csvs:
         st.write(pathlib.Path(csvs[0]).name)
         st.markdown("<div class='artifactScroll'>", unsafe_allow_html=True)
-        st.code(read_tail(csvs[0], max_lines=80), language="text")
+        st.code(read_tail(csvs[0], max_lines=120), language="text")
         st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.write("No CSV metrics found yet.")
+        st.write("No CSV metrics found in reports/.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # -----------------------
